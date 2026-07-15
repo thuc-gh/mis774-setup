@@ -7,7 +7,7 @@
 # in US month/day order: 1/07/26 becomes 7 January instead of 1 July, with no
 # error. This script installs 21 and points your Mac at it.
 #
-# Safe to re-run. No admin password needed if Homebrew is absent.
+# Safe to re-run. Repairs the broken JAVA_HOME line left by earlier versions.
 
 set -e
 RC="$HOME/.zshrc"
@@ -23,8 +23,6 @@ if [ "$(uname -m)" != arm64 ]; then
 fi
 
 # ---- Never run as root ------------------------------------------------------
-# sudo would write root-owned files into the student's home folder, which is
-# the usual reason ~/.zshrc later becomes unwritable.
 if [ "$EUID" = 0 ]; then
   echo "ERROR: do not run this with sudo."
   echo "       It would create root-owned files in your home folder and break your Terminal."
@@ -32,23 +30,17 @@ if [ "$EUID" = 0 ]; then
   exit 1
 fi
 
-# ---- Make sure we can actually write ~/.zshrc -------------------------------
-# Check this BEFORE downloading anything, and say how to fix it.
+# ---- Can we write ~/.zshrc? -------------------------------------------------
 if [ ! -e "$RC" ]; then
   touch "$RC" 2>/dev/null || {
-    echo "ERROR: cannot create $RC"
-    echo "       Your home folder is not writable. Contact IT support."
+    echo "ERROR: cannot create $RC — home folder not writable. Contact IT support."
     exit 1
   }
 fi
-
 if [ ! -w "$RC" ]; then
   RC_OWNER=$(stat -f%Su "$RC" 2>/dev/null || echo "?")
   ME=$(whoami)
-  if [ "$RC_OWNER" = "$ME" ]; then
-    # We own it, it is just read-only. Fix it and say so.
-    chmod u+w "$RC" 2>/dev/null || true
-  fi
+  [ "$RC_OWNER" = "$ME" ] && chmod u+w "$RC" 2>/dev/null || true
   if [ ! -w "$RC" ]; then
     echo "ERROR: cannot write to ~/.zshrc — permission denied."
     echo
@@ -60,8 +52,7 @@ if [ ! -w "$RC" ]; then
       echo
       echo "         sudo chown $ME ~/.zshrc && chmod u+w ~/.zshrc"
     else
-      echo "       You own the file, but it is still locked. It may be marked"
-      echo "       read-only, or protected by a flag."
+      echo "       You own the file, but it is still locked."
       echo
       echo "       Try these two lines:"
       echo
@@ -76,12 +67,25 @@ if [ ! -w "$RC" ]; then
   echo "      NOTE: ~/.zshrc was read-only; made it writable."
 fi
 
+# ---- Is Java 21 REALLY installed? -------------------------------------------
+# Critical: "java_home -v 21" alone is useless. Without -F it ALWAYS exits 0,
+# falling back to whatever Java it can find (even a Java 8 applet plugin), so
+# "-v 21" happily returns Java 8 or 26. -F makes it fail when 21 is absent.
+# We then confirm the JVM really reports 21, in case -F is unavailable.
+java21_home() {
+  local h
+  h=$(/usr/libexec/java_home -v 21 -F 2>/dev/null) || return 1
+  [ -n "$h" ] && [ -x "$h/bin/java" ] || return 1
+  "$h/bin/java" -version 2>&1 | grep -qE '(java|openjdk) version "21' || return 1
+  printf '%s' "$h"
+}
+
 # ---- 1. Install -------------------------------------------------------------
-if /usr/libexec/java_home -v 21 >/dev/null 2>&1; then
-  echo "[1/3] Java 21 already installed:"
-  echo "      $(/usr/libexec/java_home -v 21)"
+if H=$(java21_home); then
+  echo "[1/4] Java 21 already installed:"
+  echo "      $H"
 else
-  echo "[1/3] Installing Java 21..."
+  echo "[1/4] Installing Java 21..."
   if command -v brew >/dev/null 2>&1; then
     echo "      Using Homebrew (may ask for your Mac password)."
     brew install --cask temurin@21
@@ -93,52 +97,55 @@ else
     tar -xzf /tmp/jdk21.tar.gz -C "$HOME/Library/Java/JavaVirtualMachines/"
     rm -f /tmp/jdk21.tar.gz
   fi
-  /usr/libexec/java_home -v 21 >/dev/null 2>&1 \
-    || { echo "ERROR: install finished but Java 21 still not found. Stopping."; exit 1; }
-  echo "      Installed: $(/usr/libexec/java_home -v 21)"
+  if H=$(java21_home); then
+    echo "      Installed: $H"
+  else
+    echo "ERROR: Java 21 still not found after installing."
+    echo "       Installed Java versions on this Mac:"
+    /usr/libexec/java_home -V 2>&1 | sed 's/^/         /'
+    echo "       Show this to your tutor."
+    exit 1
+  fi
 fi
 
-# ---- 2. Warn about competing settings ---------------------------------------
-# A JAVA_HOME set in .zshenv/.zprofile is harmless (our .zshrc line runs later
-# and wins for interactive shells), but an unrelated one already in .zshrc will
-# fight ours, so say so rather than silently appending a second definition.
-for f in "$HOME/.zshenv" "$HOME/.zprofile" "$HOME/.zlogin"; do
-  if [ -f "$f" ] && grep -q 'JAVA_HOME' "$f" 2>/dev/null; then
-    echo "      NOTE: $f also sets JAVA_HOME. Ours takes effect for Terminal windows,"
-    echo "            but remove that line if anything behaves oddly."
-  fi
-done
-if [ -f "$RC" ] && grep -q 'JAVA_HOME' "$RC" 2>/dev/null && ! grep -q 'java_home -v 21' "$RC" 2>/dev/null; then
-  echo
-  echo "      WARNING: ~/.zshrc already sets JAVA_HOME to something else:"
-  grep -n 'JAVA_HOME' "$RC" | sed 's/^/               /'
-  echo "      Our setting is added at the end of the file, so it wins. Delete the"
-  echo "      old line(s) above if you want to keep things tidy."
-  echo
+# ---- 2. Repair any broken line from an earlier version of this script -------
+# Earlier versions wrote java_home WITHOUT -F, which can point JAVA_HOME at the
+# wrong Java. Upgrade those lines in place rather than adding a second block.
+if grep -q 'java_home -v 21' "$RC" 2>/dev/null && ! grep -q 'java_home -v 21 -F' "$RC" 2>/dev/null; then
+  cp "$RC" "$RC.mis774-backup"
+  sed -i '' -e 's|java_home -v 21)|java_home -v 21 -F)|g' \
+            -e 's|java_home -v 21 2>/dev/null)|java_home -v 21 -F 2>/dev/null)|g' "$RC"
+  echo "[2/4] Repaired an earlier JAVA_HOME line that could point at the wrong Java."
+  echo "      (backup saved as ~/.zshrc.mis774-backup)"
 fi
 
 # ---- 3. Set JAVA_HOME -------------------------------------------------------
-# "-v 21" means exactly Java 21. Never "-v 21+": the "+" means "21 or newer",
-# which resolves to Java 26 and silently undoes this whole script.
-if grep -q 'java_home -v 21' "$RC" 2>/dev/null; then
-  echo "[2/3] JAVA_HOME already configured in ~/.zshrc."
+if grep -q 'java_home -v 21 -F' "$RC" 2>/dev/null; then
+  echo "[3/4] JAVA_HOME already configured in ~/.zshrc."
 else
-  echo "[2/3] Adding JAVA_HOME to ~/.zshrc..."
+  echo "[3/4] Adding JAVA_HOME to ~/.zshrc..."
   cat >> "$RC" <<'EOF'
 
 # Java 21 for Pentaho 11. Pentaho needs 21; on newer Java it reads dates in
-# US month/day order without any error. "-v 21" not "-v 21+" ("+" means 21-or-newer).
-export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
-export PATH="$JAVA_HOME/bin:$PATH"
+# US month/day order without any error.
+# -F makes java_home FAIL when 21 is missing, instead of silently handing back
+# a different Java. Without -F this line can point at Java 8 or 26.
+_j21=$(/usr/libexec/java_home -v 21 -F 2>/dev/null)
+if [ -n "$_j21" ]; then
+  export JAVA_HOME="$_j21"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
+unset _j21
 EOF
 fi
 
-# ---- Verify -----------------------------------------------------------------
-# Check the way a real Terminal window will see it: .zshrc only loads for
-# interactive shells, so "zsh -i" is the honest test ("zsh -l -c" is not).
-echo "[3/3] Verifying in a fresh interactive shell..."
-VER=$(zsh -i -c 'java -version' 2>&1 | head -1)
-JH=$(zsh -i -c 'echo $JAVA_HOME' 2>/dev/null | tail -1)
+# ---- 4. Verify --------------------------------------------------------------
+# .zshrc only loads for interactive shells, so "zsh -i" is the honest test.
+# Filter for the version line specifically: Terminal's "Restored session:"
+# banner and other startup output can otherwise land on line 1.
+echo "[4/4] Verifying in a fresh interactive shell..."
+VER=$(zsh -i -c 'java -version' 2>&1 | grep -E '(java|openjdk) version' | head -1)
+JH=$(zsh -i -c 'echo "JH=$JAVA_HOME"' 2>&1 | grep '^JH=' | head -1 | sed 's/^JH=//')
 
 echo
 if echo "$VER" | grep -q '"21'; then
@@ -150,10 +157,18 @@ if echo "$VER" | grep -q '"21'; then
   echo "Old windows keep the old setting until you close them."
 else
   echo "PROBLEM: expected Java 21 but a fresh shell reports:"
-  echo "  $VER"
-  echo "  JAVA_HOME = $JH"
+  echo "  version   : ${VER:-(no version line found)}"
+  echo "  JAVA_HOME : ${JH:-(empty)}"
   echo
-  echo "Try:  source ~/.zshrc && java -version"
-  echo "If it still fails, check ~/.zshrc for another JAVA_HOME line after ours."
+  echo "Java 21 IS installed at:"
+  echo "  $H"
+  echo
+  echo "So something in your shell config is overriding it. Check for another"
+  echo "JAVA_HOME line in these files, and delete it:"
+  for f in "$HOME/.zshrc" "$HOME/.zprofile" "$HOME/.zshenv" "$HOME/.zlogin"; do
+    [ -f "$f" ] && grep -n 'JAVA_HOME' "$f" 2>/dev/null | sed "s|^|    $(basename $f):|"
+  done
+  echo
+  echo "Show this to your tutor."
   exit 1
 fi

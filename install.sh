@@ -77,7 +77,19 @@ if [ ! -w "$RC" ]; then
 fi
 
 # ---- 1. Java 21 -------------------------------------------------------------
-if /usr/libexec/java_home -v 21 >/dev/null 2>&1; then
+# Critical: "java_home -v 21" alone is useless. Without -F it ALWAYS exits 0,
+# falling back to whatever Java it finds (even a Java 8 applet plugin), so it
+# happily reports "21 installed" when it isn't. -F makes it fail properly.
+# We then confirm the JVM really reports 21.
+java21_home() {
+  local h
+  h=$(/usr/libexec/java_home -v 21 -F 2>/dev/null) || return 1
+  [ -n "$h" ] && [ -x "$h/bin/java" ] || return 1
+  "$h/bin/java" -version 2>&1 | grep -qE '(java|openjdk) version "21' || return 1
+  printf '%s' "$h"
+}
+
+if J21=$(java21_home); then
   echo "[1/4] Java 21 already installed."
 else
   echo "[1/4] Installing Java 21 (~200MB)..."
@@ -86,19 +98,40 @@ else
     "https://api.adoptium.net/v3/binary/latest/21/ga/mac/aarch64/jdk/hotspot/normal/eclipse"
   tar -xzf /tmp/jdk21.tar.gz -C "$HOME/Library/Java/JavaVirtualMachines/"
   rm -f /tmp/jdk21.tar.gz
-  echo "      Installed (no admin password needed)."
+  if J21=$(java21_home); then
+    echo "      Installed (no admin password needed)."
+  else
+    echo "ERROR: Java 21 still not found after installing. Java versions present:"
+    /usr/libexec/java_home -V 2>&1 | sed 's/^/         /'
+    echo "       Show this to your tutor."
+    exit 1
+  fi
 fi
 
-# Use "-v 21", never "-v 21+": the "+" means "21 or newer" and picks the wrong Java.
-if grep -q 'java_home -v 21' "$HOME/.zshrc" 2>/dev/null; then
+# Repair the line written by earlier versions of this script, which used
+# java_home WITHOUT -F and so could point JAVA_HOME at the wrong Java.
+if grep -q 'java_home -v 21' "$RC" 2>/dev/null && ! grep -q 'java_home -v 21 -F' "$RC" 2>/dev/null; then
+  cp "$RC" "$RC.mis774-backup"
+  sed -i '' -e 's|java_home -v 21)|java_home -v 21 -F)|g' \
+            -e 's|java_home -v 21 2>/dev/null)|java_home -v 21 -F 2>/dev/null)|g' "$RC"
+  echo "      Repaired an earlier JAVA_HOME line (backup: ~/.zshrc.mis774-backup)."
+fi
+
+if grep -q 'java_home -v 21 -F' "$RC" 2>/dev/null; then
   echo "      JAVA_HOME already set."
 else
-  cat >> "$HOME/.zshrc" <<'EOF'
+  cat >> "$RC" <<'EOF'
 
 # Java 21 for Pentaho 11 (MIS774). Pentaho needs 21; on newer Java it reads
 # dates in US month/day order without telling you.
-export JAVA_HOME="$(/usr/libexec/java_home -v 21)"
-export PATH="$JAVA_HOME/bin:$PATH"
+# -F makes java_home FAIL when 21 is missing, instead of silently handing back
+# a different Java. Without -F this line can point at Java 8 or 26.
+_j21=$(/usr/libexec/java_home -v 21 -F 2>/dev/null)
+if [ -n "$_j21" ]; then
+  export JAVA_HOME="$_j21"
+  export PATH="$JAVA_HOME/bin:$PATH"
+fi
+unset _j21
 EOF
   echo "      JAVA_HOME added to ~/.zshrc."
 fi
@@ -145,12 +178,19 @@ echo "Checking what was installed..."
 OK=1
 
 # .zshrc only loads for interactive shells, so "zsh -i" is the honest test.
-VER=$(zsh -i -c 'java -version' 2>&1 | head -1)
+# Grep for the version line specifically: Terminal's "Restored session:" banner
+# and other startup output can otherwise land on line 1 and be mistaken for it.
+VER=$(zsh -i -c 'java -version' 2>&1 | grep -E '(java|openjdk) version' | head -1)
 if echo "$VER" | grep -q '"21'; then
   echo "  Java 21        OK"
 else
-  echo "  Java           PROBLEM -> $VER"
-  echo "                 Try:  source ~/.zshrc && java -version"
+  echo "  Java           PROBLEM -> ${VER:-(no version line found)}"
+  echo "                 Java 21 is installed at: $J21"
+  echo "                 Something in your shell config is overriding it."
+  echo "                 Look for another JAVA_HOME line here and delete it:"
+  for f in "$RC" "$HOME/.zprofile" "$HOME/.zshenv"; do
+    [ -f "$f" ] && grep -n 'JAVA_HOME' "$f" 2>/dev/null | sed "s|^|                   $(basename $f):|"
+  done
   OK=0
 fi
 
