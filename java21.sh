@@ -22,6 +22,60 @@ if [ "$(uname -m)" != arm64 ]; then
   exit 1
 fi
 
+# ---- Never run as root ------------------------------------------------------
+# sudo would write root-owned files into the student's home folder, which is
+# the usual reason ~/.zshrc later becomes unwritable.
+if [ "$EUID" = 0 ]; then
+  echo "ERROR: do not run this with sudo."
+  echo "       It would create root-owned files in your home folder and break your Terminal."
+  echo "       Run it again WITHOUT sudo."
+  exit 1
+fi
+
+# ---- Make sure we can actually write ~/.zshrc -------------------------------
+# Check this BEFORE downloading anything, and say how to fix it.
+if [ ! -e "$RC" ]; then
+  touch "$RC" 2>/dev/null || {
+    echo "ERROR: cannot create $RC"
+    echo "       Your home folder is not writable. Contact IT support."
+    exit 1
+  }
+fi
+
+if [ ! -w "$RC" ]; then
+  RC_OWNER=$(stat -f%Su "$RC" 2>/dev/null || echo "?")
+  ME=$(whoami)
+  if [ "$RC_OWNER" = "$ME" ]; then
+    # We own it, it is just read-only. Fix it and say so.
+    chmod u+w "$RC" 2>/dev/null || true
+  fi
+  if [ ! -w "$RC" ]; then
+    echo "ERROR: cannot write to ~/.zshrc — permission denied."
+    echo
+    if [ "$RC_OWNER" != "$ME" ]; then
+      echo "       The file is owned by '$RC_OWNER', but you are '$ME'."
+      echo "       This normally happens when something was run with sudo earlier."
+      echo
+      echo "       Fix it by running this one line (it will ask for your Mac password):"
+      echo
+      echo "         sudo chown $ME ~/.zshrc && chmod u+w ~/.zshrc"
+    else
+      echo "       You own the file, but it is still locked. It may be marked"
+      echo "       read-only, or protected by a flag."
+      echo
+      echo "       Try these two lines:"
+      echo
+      echo "         chflags nouchg ~/.zshrc"
+      echo "         chmod u+w ~/.zshrc"
+    fi
+    echo
+    echo "       Then run this script again."
+    echo "       If that does not work, show this message to your tutor."
+    exit 1
+  fi
+  echo "      NOTE: ~/.zshrc was read-only; made it writable."
+fi
+
 # ---- 1. Install -------------------------------------------------------------
 if /usr/libexec/java_home -v 21 >/dev/null 2>&1; then
   echo "[1/3] Java 21 already installed:"

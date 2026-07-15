@@ -10,6 +10,7 @@ set -e
 BASE="https://github.com/thuc-gh/mis774-setup/releases/download/v2026-t2"
 DL="$HOME/Downloads"
 TARGET="$HOME/Pentaho/data-integration"
+RC="$HOME/.zshrc"
 
 echo "MIS774 macOS setup"
 echo "=================="
@@ -31,6 +32,49 @@ if [ "${FREE_GB:-99}" -lt 4 ]; then
 fi
 
 mkdir -p "$DL"   # normally exists, but the download fails hard if it doesn't
+
+# Never run as root: sudo writes root-owned files into the student's home,
+# which is the usual reason ~/.zshrc later becomes unwritable.
+if [ "$EUID" = 0 ]; then
+  echo "ERROR: do not run this with sudo."
+  echo "       It would create root-owned files in your home folder and break your Terminal."
+  echo "       Run it again WITHOUT sudo."
+  exit 1
+fi
+
+# Check we can write ~/.zshrc BEFORE downloading a gigabyte.
+if [ ! -e "$RC" ]; then
+  touch "$RC" 2>/dev/null || { echo "ERROR: cannot create $RC — home folder not writable. Contact IT support."; exit 1; }
+fi
+if [ ! -w "$RC" ]; then
+  RC_OWNER=$(stat -f%Su "$RC" 2>/dev/null || echo "?")
+  ME=$(whoami)
+  [ "$RC_OWNER" = "$ME" ] && chmod u+w "$RC" 2>/dev/null || true
+  if [ ! -w "$RC" ]; then
+    echo "ERROR: cannot write to ~/.zshrc — permission denied."
+    echo
+    if [ "$RC_OWNER" != "$ME" ]; then
+      echo "       The file is owned by '$RC_OWNER', but you are '$ME'."
+      echo "       This normally happens when something was run with sudo earlier."
+      echo
+      echo "       Fix it by running this one line (it will ask for your Mac password):"
+      echo
+      echo "         sudo chown $ME ~/.zshrc && chmod u+w ~/.zshrc"
+    else
+      echo "       You own the file, but it is still locked."
+      echo
+      echo "       Try these two lines:"
+      echo
+      echo "         chflags nouchg ~/.zshrc"
+      echo "         chmod u+w ~/.zshrc"
+    fi
+    echo
+    echo "       Then run this installer again."
+    echo "       If that does not work, show this message to your tutor."
+    exit 1
+  fi
+  echo "      NOTE: ~/.zshrc was read-only; made it writable."
+fi
 
 # ---- 1. Java 21 -------------------------------------------------------------
 if /usr/libexec/java_home -v 21 >/dev/null 2>&1; then
