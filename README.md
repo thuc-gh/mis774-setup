@@ -52,11 +52,22 @@ The Spoon window can take up to a minute to appear.
 
 If you'd rather not run the script, all files are on the [Releases page](../../releases/latest).
 
+## Only need to fix Java?
+
+If Pentaho is already installed and you just need Java 21 set up correctly:
+
+```bash
+zsh -c "$(curl -fsSL https://raw.githubusercontent.com/thuc-gh/mis774-setup/main/java21.sh)"
+```
+
+It installs Java 21, sets `JAVA_HOME`, warns you if an old Java setting is fighting it, and checks the result.
+
 ## What's in this repo
 
 | File | Purpose |
 |---|---|
-| `install.sh` | The installer |
+| `install.sh` | Full installer (Java, Pentaho, MySQL) |
+| `java21.sh` | Java 21 only |
 | `LICENSES.md` | Licences and source availability for everything distributed here |
 
 ---
