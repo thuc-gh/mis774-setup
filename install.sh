@@ -14,13 +14,23 @@ TARGET="$HOME/Pentaho/data-integration"
 echo "MIS774 macOS setup"
 echo "=================="
 
-# ---- Apple Silicon only -----------------------------------------------------
+# ---- Checks before we download a gigabyte ------------------------------------
 if [ "$(uname -m)" != arm64 ]; then
   echo "ERROR: this installer is for Apple Silicon Macs (M1/M2/M3/M4) only."
   echo "       Your Mac reports: $(uname -m) (Intel)."
   echo "       Ask your tutor for the Intel instructions."
   exit 1
 fi
+
+FREE_GB=$(df -g "$HOME" | tail -1 | awk '{print $4}')
+if [ "${FREE_GB:-99}" -lt 4 ]; then
+  echo "ERROR: not enough free disk space."
+  echo "       This needs about 4GB free; you have ${FREE_GB}GB."
+  echo "       Free some space and run this again."
+  exit 1
+fi
+
+mkdir -p "$DL"   # normally exists, but the download fails hard if it doesn't
 
 # ---- 1. Java 21 -------------------------------------------------------------
 if /usr/libexec/java_home -v 21 >/dev/null 2>&1; then
@@ -87,9 +97,46 @@ else
 fi
 
 echo
-echo "Done."
-echo "  1. Finish the MySQL installers if they opened (set a root password and write it down)."
-echo "  2. Open a NEW Terminal window."
-echo "  3. Start Pentaho:  cd ~/Pentaho/data-integration && ./spoon.sh"
+echo "Checking what was installed..."
+OK=1
+
+# .zshrc only loads for interactive shells, so "zsh -i" is the honest test.
+VER=$(zsh -i -c 'java -version' 2>&1 | head -1)
+if echo "$VER" | grep -q '"21'; then
+  echo "  Java 21        OK"
+else
+  echo "  Java           PROBLEM -> $VER"
+  echo "                 Try:  source ~/.zshrc && java -version"
+  OK=0
+fi
+
+if [ -x "$TARGET/spoon.sh" ]; then
+  echo "  Pentaho        OK"
+else
+  echo "  Pentaho        PROBLEM -> not found at $TARGET"
+  OK=0
+fi
+
+if [ -f "$TARGET/lib/mysql-connector-j-8.0.33.jar" ]; then
+  echo "  MySQL driver   OK"
+else
+  echo "  MySQL driver   PROBLEM -> missing from $TARGET/lib"
+  OK=0
+fi
+
 echo
-echo "Check Java is right (must say 21) in the new window:  java -version"
+if [ "$OK" = 1 ]; then
+  echo "Java and Pentaho are ready."
+else
+  echo "SOMETHING WENT WRONG (see above). Show this output to your tutor."
+fi
+
+echo
+echo "You still need to do these yourself:"
+echo "  1. If a MySQL installer window opened, click through it now."
+echo "     >>> Write down the MySQL root password you set. It CANNOT be recovered. <<<"
+echo "  2. If the Workbench window opened, drag MySQL Workbench into Applications."
+echo "  3. Open a NEW Terminal window (this one still has the old Java setting)."
+echo "  4. Start Pentaho:  cd ~/Pentaho/data-integration && ./spoon.sh"
+
+[ "$OK" = 1 ] || exit 1
