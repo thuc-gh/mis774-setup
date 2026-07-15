@@ -38,7 +38,30 @@ The Spoon window can take up to a minute to appear.
 
 **Open a new Terminal window after installing.** The Java setting only applies to windows opened afterwards. If `java -version` says 26, that's all this is.
 
+**Never run the installer with `sudo`.** It doesn't need it, and `sudo` creates files your normal account can't edit afterwards. The installer refuses to run that way.
+
 ## If something goes wrong
+
+### `permission denied: .zshrc`
+
+The installer needs to add one line to `~/.zshrc`, and that file isn't writable by you. This almost always means something was run with `sudo` earlier, so the file now belongs to `root` instead of you.
+
+Run this one line (it will ask for your Mac password), then run the installer again:
+
+```bash
+sudo chown $(whoami) ~/.zshrc && chmod u+w ~/.zshrc
+```
+
+If it says the file is locked rather than owned by someone else, run these instead:
+
+```bash
+chflags nouchg ~/.zshrc
+chmod u+w ~/.zshrc
+```
+
+> **If you used `sudo` on an earlier setup attempt**, other files may also be stuck the same way. If you hit "permission denied" again on a different file, tell your tutor what you ran with `sudo` — don't keep adding `sudo` to make errors go away, as that makes it worse.
+
+### Other problems
 
 **Pentaho window is blank / grey.** You're on an unpatched Pentaho. Use the download from here rather than one from the Pentaho website: this build already contains the fix (Pentaho ships a 2022 graphics library that cannot draw on macOS 26).
 
@@ -47,6 +70,8 @@ The Spoon window can take up to a minute to appear.
 **"Cannot be opened because the developer cannot be verified".** System Settings → Privacy & Security → scroll down → **Open Anyway**.
 
 **Forgot your MySQL root password.** There is no recovery. Uninstall MySQL Server and reinstall.
+
+**"not enough free disk space".** The installer needs about 4GB free. Empty your Trash and try again.
 
 ## Manual downloads
 
