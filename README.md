@@ -69,7 +69,7 @@ chmod u+w ~/.zshrc
 
 **"Cannot be opened because the developer cannot be verified".** System Settings → Privacy & Security → scroll down → **Open Anyway**.
 
-**Forgot your MySQL root password.** There is no recovery. Uninstall MySQL Server and reinstall.
+**Forgot your MySQL root password.** There is no recovery. [Uninstall MySQL completely](#uninstalling-mysql), then reinstall it from the installer.
 
 **"not enough free disk space".** The installer needs about 4GB free. Empty your Trash and try again.
 
@@ -87,12 +87,31 @@ zsh -c "$(curl -fsSL https://raw.githubusercontent.com/thuc-gh/mis774-setup/main
 
 It installs Java 21, sets `JAVA_HOME`, warns you if an old Java setting is fighting it, and checks the result.
 
+## Uninstalling MySQL
+
+If your MySQL install is broken, you forgot the root password, or you want a clean start before reinstalling:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/thuc-gh/mis774-setup/main/uninstall-mysql.sh)"
+```
+
+It finds every MySQL installation on your Mac (the official installer used by this unit, or Homebrew), shows you exactly what it will remove, and only deletes after you type `yes`. It will ask for your Mac password along the way — that's normal. The same rule as installing applies: **don't run it with `sudo`** (it refuses anyway).
+
+> **This permanently deletes all MySQL databases on your Mac.** If you have coursework in MySQL you want to keep, export it first — in MySQL Workbench: **Server → Data Export** — or back up everything with `mysqldump -u root -p --all-databases > backup.sql`.
+
+To see what it would remove without deleting anything:
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/thuc-gh/mis774-setup/main/uninstall-mysql.sh)" -- --dry-run
+```
+
 ## What's in this repo
 
 | File | Purpose |
 |---|---|
 | `install.sh` | Full installer (Java, Pentaho, MySQL) |
 | `java21.sh` | Java 21 only |
+| `uninstall-mysql.sh` | Complete MySQL removal (for a clean reinstall) |
 | `LICENSES.md` | Licences and source availability for everything distributed here |
 
 ---
